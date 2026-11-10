@@ -230,6 +230,31 @@ body{
   .c-val{font-size:clamp(1.15rem, 5.4vw, 1.5rem)}
 }
 
+/* shelf of pages from data/ */
+.shelf{display:grid; gap:20px; padding-block:48px 8px}
+.pages{list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap:18px}
+.pages li{min-width:0}
+.page-link{
+  height:100%; display:flex; flex-direction:column; gap:8px;
+  padding:18px 18px 16px;
+  background:var(--paper); color:var(--ink); text-decoration:none;
+  border:var(--line) solid var(--ink); border-radius:18px;
+  box-shadow:5px 5px 0 var(--shadow);
+  transition:transform .12s ease, box-shadow .12s ease;
+}
+.page-link:hover{transform:translate(-3px,-3px); box-shadow:8px 8px 0 var(--shadow)}
+.page-link:active{transform:translate(3px,3px); box-shadow:1px 1px 0 var(--shadow)}
+.page-link:focus-visible{outline:3px dashed var(--pop); outline-offset:4px}
+.p-file{font-size:.74rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; overflow-wrap:anywhere; color:color-mix(in srgb, var(--ink) 65%, var(--paper))}
+.p-title{font-family:var(--display); font-weight:700; font-size:1.15rem; line-height:1.15; overflow-wrap:anywhere; text-wrap:balance}
+.p-note{font-size:.92rem; line-height:1.35}
+.p-go{margin-top:auto; align-self:flex-end; width:40px; height:40px; display:grid; place-items:center; border-radius:50%; background:var(--ink); color:var(--sky); font-weight:800; font-size:1.1rem; transition:transform .25s cubic-bezier(.3,1.6,.5,1)}
+.page-link:hover .p-go{transform:translateX(4px) rotate(-20deg)}
+.page-link.missing{border-style:dashed; box-shadow:none}
+.page-link.missing .p-go{background:var(--pop); color:var(--on-pop)}
+.shelf-state{margin:0; padding:22px; max-width:70ch; border:var(--line) dashed var(--ink); border-radius:18px; background:color-mix(in srgb, var(--paper) 65%, transparent); font-size:1rem}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:.9em; padding:.05em .35em; border-radius:6px; background:color-mix(in srgb, var(--ink) 11%, transparent)}
+
 /* ribbon */
 .ribbon{overflow:hidden; padding-block:60px 44px}
 .band{width:112%; margin-left:-6%; background:var(--pop); color:var(--on-pop); border-block:var(--line) solid var(--ink); transform:rotate(-2deg)}
@@ -330,6 +355,18 @@ body{
     <div class="cell" data-k="smile"><p class="c-label">Индекс улыбок</p><p class="c-val"><span class="num">9</span><span class="unit">/10</span></p><p class="c-note">высокий, береги щёки</p></div>
     <div class="cell" data-k="dead"><p class="c-label">Дедлайны</p><p class="c-val"><span class="num">0</span><span class="unit">шт.</span></p><p class="c-note">на горизонте чисто</p></div>
   </div>
+</section>
+
+<section class="shelf wrap" aria-labelledby="shelfTitle">
+  <div class="fc-head">
+    <div>
+      <h2 id="shelfTitle">Ещё странички</h2>
+      <p class="fc-sub">Всё, что лежит в папке <code>data</code>. Список собирается заново при каждом открытии.</p>
+    </div>
+    <span class="chip" id="shelfCount">читаю папку</span>
+  </div>
+  <ul class="pages" id="pages" hidden></ul>
+  <p class="shelf-state" id="shelfState">Заглядываю в папку data…</p>
 </section>
 
 <div class="ribbon" aria-hidden="true">
@@ -603,6 +640,131 @@ body{
     cells.forEach((c, i) => setTimeout(() => render(c, gens[c.dataset.k]()), reduce ? 0 : i * 70));
     fromEl(e.currentTarget, 30);
   });
+
+  /* shelf: html pages from the data folder */
+  const DATA = 'data/';
+  const REPO = {owner: 'aleksandraslh', repo: 'pages', dir: 'data'}; // used when the site lives on its own domain
+  const shelfList = $('#pages'), shelfState = $('#shelfState'), shelfCount = $('#shelfCount');
+  const isHtml = name => /\.html?$/i.test(name);
+  const byName = (a, b) => a.file.localeCompare(b.file, 'ru', {numeric: true});
+  const pretty = f => {
+    const s = f.replace(/\.html?$/i, '').replace(/[-_]+/g, ' ').trim();
+    return s ? s[0].toUpperCase() + s.slice(1) : f;
+  };
+
+  // 1) local server that shows folder contents (python3 -m http.server, nginx autoindex)
+  async function readListing(){
+    const dir = new URL(DATA, location.href);
+    const r = await fetch(dir, {cache: 'no-store'});
+    if (!r.ok || !(r.headers.get('content-type') || '').includes('html')) return null;
+    const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+    const files = new Set();
+    doc.querySelectorAll('a[href]').forEach(a => {
+      try {
+        const u = new URL(a.getAttribute('href'), dir);
+        if (u.origin !== dir.origin || !u.pathname.startsWith(dir.pathname)) return;
+        const rest = decodeURIComponent(u.pathname.slice(dir.pathname.length));
+        if (rest && !rest.includes('/') && isHtml(rest)) files.add(rest);
+      } catch (e) {}
+    });
+    return files.size ? [...files].map(file => ({file})).sort(byName) : null;
+  }
+
+  // 2) GitHub Pages: read the folder straight from the repository via the public GitHub API
+  function repoInfo(){
+    const host = location.hostname;
+    if (host.endsWith('.github.io')) {
+      const first = location.pathname.split('/').filter(Boolean)[0];
+      return {owner: host.split('.')[0], repo: first && !isHtml(first) ? decodeURIComponent(first) : host, dir: REPO.dir};
+    }
+    return REPO;
+  }
+  async function readGitHub(){
+    if (location.protocol === 'file:') return null;
+    const {owner, repo, dir} = repoInfo();
+    const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${dir}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!Array.isArray(j)) return null;
+    return j.filter(x => x && x.type === 'file' && isHtml(x.name)).map(x => ({file: x.name})).sort(byName);
+  }
+
+  // 3) any other hosting: data/pages.json with ["a.html"] or {"pages": [{"file": "a.html", "title": "...", "note": "..."}]}
+  async function readManifest(){
+    const r = await fetch(DATA + 'pages.json', {cache: 'no-store'});
+    if (!r.ok) return null;
+    const j = await r.json();
+    const list = Array.isArray(j) ? j : (j && Array.isArray(j.pages) ? j.pages : []);
+    return list
+      .map(x => typeof x === 'string' ? {file: x} : x)
+      .filter(x => x && typeof x.file === 'string' && x.file.trim());
+  }
+
+  // card title comes from the page's own <title>
+  async function inspect(p){
+    try {
+      const r = await fetch(DATA + encodeURIComponent(p.file), {cache: 'no-store'});
+      if (!r.ok) return {...p, missing: true};
+      if (p.title) return p;
+      const t = new DOMParser().parseFromString(await r.text(), 'text/html').title.trim();
+      return {...p, title: t};
+    } catch (e) { return p; }
+  }
+
+  function pageCard(p){
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.className = 'page-link' + (p.missing ? ' missing' : '');
+    a.href = DATA + encodeURIComponent(p.file);
+    const file = document.createElement('span');
+    file.className = 'p-file';
+    file.textContent = 'data/' + p.file;
+    const title = document.createElement('span');
+    title.className = 'p-title';
+    title.textContent = p.title || pretty(p.file);
+    a.append(file, title);
+    const noteText = p.missing ? 'Файл пока не доехал до сайта, проверь, что он запушен.' : p.note;
+    if (noteText) {
+      const note = document.createElement('span');
+      note.className = 'p-note';
+      note.textContent = noteText;
+      a.append(note);
+    }
+    const go = document.createElement('span');
+    go.className = 'p-go';
+    go.setAttribute('aria-hidden', 'true');
+    go.textContent = p.missing ? '?' : '→';
+    a.append(go);
+    li.append(a);
+    return li;
+  }
+
+  async function loadShelf(){
+    let pages = null;
+    for (const source of [readListing, readGitHub, readManifest]) {
+      try { pages = await source(); } catch (e) { pages = null; }
+      if (pages) break;
+    }
+    if (!pages) {
+      shelfCount.textContent = 'папка не читается';
+      shelfState.innerHTML = location.protocol === 'file:'
+        ? 'Браузер не даёт страничке читать папки прямо с диска. Открой сайт на GitHub Pages или запусти рядом с index.html локальный сервер, например <code>python3 -m http.server</code>.'
+        : 'Папку прочитать не получилось: сервер не показывает список файлов, GitHub не ответил, а файла <code>data/pages.json</code> нет. Проверь, что папка <code>data</code> запушена в репозиторий.';
+      return;
+    }
+    if (!pages.length) {
+      shelfCount.textContent = 'пусто';
+      shelfState.innerHTML = 'В папке <code>data</code> пока нет html-страниц. Закинь туда файл и запушь, он появится здесь сам.';
+      return;
+    }
+    const full = await Promise.all(pages.map(inspect));
+    shelfList.replaceChildren(...full.map(pageCard));
+    shelfList.hidden = false;
+    shelfState.hidden = true;
+    const n = full.length;
+    shelfCount.textContent = `${n} ${plural(n, ['страничка', 'странички', 'страничек'])}`;
+  }
+  loadShelf();
 })();
 </script>
 

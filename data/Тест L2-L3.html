@@ -1,6 +1,5 @@
 <!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Аттестация CID L3</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;700&display=swap">
@@ -504,11 +503,11 @@ function renderStart(){
   if(S.mode==="grader") return renderGraderStart(root);
   const name=(S.me&&S.me.name)?S.me.name.split(" ")[0]:"";
   root.append(el("div",{class:"part-head"},el("div",null,el("div",{class:"eyebrow",text:"Как это устроено"}),el("h2",{text:name?("Привет, "+name+"!"):"Перед стартом"})),el("div",{class:"part-meta",text:"100 баллов · около 2 часов"})));
-  if(S.local) root.append(el("div",{class:"banner warn",text:"Ответы сохраняются только в этом браузере. Чтобы руководитель увидел их, открой тест по ссылке в claude.ai под рабочим аккаунтом."}));
+  if(S.local) root.append(el("div",{class:"banner warn",text:"Черновик ответов хранится в этом браузере, поэтому проходи тест на одном устройстве. В конце нажмёшь «Отправить», и ответы уйдут руководителю на почту."}));
   if(S.sub.submitted) root.append(el("div",{class:"banner ok",text:"Ответы отправлены "+fmtDate(S.sub.submittedAt)+". Дальше устный разбор: можно спокойно выдохнуть."}));
   const rules=el("ol",{class:"rules"},
     el("li",null,"Время около двух часов. Таймер вверху стартует по кнопке и нужен как ориентир, а не как жёсткий лимит."),
-    el("li",null,"Ответы сохраняются сами. Можно закрыть вкладку и вернуться, в том числе с другого устройства."),
+    el("li",null,"Ответы сохраняются сами. Можно закрыть вкладку и вернуться, главное в том же браузере."),
     el("li",null,"Часть 1 по памяти. В частях 2–4 можно открывать YouTube Help и Wiki; если опираешься на источник, укажи какой."),
     el("li",null,"Пиши своими словами и по делу. Если данных не хватает, напиши, что и у кого уточнишь: это тоже засчитывается."),
     el("li",null,"Кейсы взяты из нашей работы, названия и цифры изменены."),
@@ -628,29 +627,68 @@ function renderOpen(part){
 }
 
 /* ---------- submit ---------- */
+const FORM_URL="https://formsubmit.co/ajax/sel@mediacube.io";
+let sending=false, sendError="";
 function renderSubmit(){
   const root=$("#sec-submit"); root.replaceChildren();
   root.append(el("div",{class:"part-head"},el("div",null,el("div",{class:"eyebrow",text:"Финиш"}),el("h2",{text:"Отправка ответов"}))));
-  if(S.sub.submitted){ root.append(el("div",{class:"banner ok",text:"Готово, ответы отправлены "+fmtDate(S.sub.submittedAt)+". Время в тесте: "+fmt((S.sub.submittedAt-S.sub.startedAt)/1000)+"."})); }
+  if(S.sub.submitted){ root.append(el("div",{class:"banner ok",text:"Готово, ответы ушли руководителю на почту "+fmtDate(S.sub.submittedAt)+". Время в тесте: "+fmt((S.sub.submittedAt-S.sub.startedAt)/1000)+"."})); }
   const a=S.sub.answers; const chk=el("div",{class:"check"});
   const rowsData=[["Часть 1 · ответы на вопросы",counter("blitz")],["Часть 2 · выбрано действий",counter("queue")],["Часть 3 · заполнено полей",counter("cases")],["Часть 4 · заполнено полей",counter("l3")]];
   rowsData.forEach(([t,n])=>chk.append(el("div",{text:t}),el("div",{class:"n",text:n})));
   const emptyWhy=QUEUE.filter(q=>a.queue[q.id]&&a.queue[q.id].action&&!(a.queue[q.id].why||"").trim()).length;
   root.append(chk);
   if(emptyWhy) root.append(el("div",{class:"banner warn",text:"В части 2 без обоснования: "+emptyWhy+". За каждое пустое обоснование теряется балл."}));
-  if(S.local) root.append(el("div",{class:"banner warn",text:"Сейчас ответы хранятся только в этом браузере. Скопируй их и отправь руководителю, если не получается открыть тест через claude.ai."}),el("div",{class:"row",style:"margin-bottom:14px"},el("button",{class:"btn ghost small",type:"button",onclick:()=>copyText(plainAnswers(S.sub))},"Скопировать ответы текстом")));
   if(!S.sub.submitted){
+    const inp=el("input",{id:"cand-name",type:"text",autocomplete:"name",value:S.sub.name||"",placeholder:"Например, Саша Иванов",disabled:!S.sub.startedAt});
+    inp.addEventListener("input",()=>{ S.sub.name=inp.value; onAnswer(); });
+    root.append(el("div",{class:"field",style:"margin-bottom:16px;max-width:420px"},
+      el("label",{for:"cand-name",text:"Имя и фамилия"}),
+      el("span",{class:"hint",text:"Чтобы руководитель понял, чьи это ответы"}),inp));
+    if(sendError) root.append(el("div",{class:"banner bad",text:"Письмо не ушло: "+sendError+" Попробуй ещё раз через минуту. Если не выйдет, скопируй ответы текстом ниже и пришли руководителю в чат."}));
     const area=el("div");
-    const b=el("button",{class:"btn",type:"button"},"Отправить ответы");
+    const b=el("button",{class:"btn",type:"button",disabled:!S.sub.startedAt},"Отправить ответы");
     b.addEventListener("click",()=>{
-      area.replaceChildren(el("div",{class:"confirm"},el("p",{style:"margin:0 0 12px",text:"Отправляем? После этого ответы нельзя будет изменить."}),
+      if(!(S.sub.name||"").trim()){ inp.focus(); toast("Сначала впиши имя"); return; }
+      area.replaceChildren(el("div",{class:"confirm"},el("p",{style:"margin:0 0 12px",text:"Отправляем руководителю на почту? После этого ответы нельзя будет изменить."}),
         el("div",{class:"row"},el("button",{class:"btn",type:"button",onclick:submitNow},"Да, отправить"),el("button",{class:"btn ghost",type:"button",onclick:()=>area.replaceChildren(b)},"Вернуться к ответам"))));
     });
     area.append(b); root.append(area);
   }
+  if(S.sub.startedAt) root.append(el("div",{class:"row",style:"margin-top:18px"},el("button",{class:"btn ghost small",type:"button",onclick:()=>copyText(plainAnswers(S.sub))},S.sub.submitted?"Скопировать свои ответы":"Скопировать ответы текстом")));
 }
-async function submitNow(){
-  S.sub.submitted=true; S.sub.submittedAt=Date.now(); await flush(true); renderAll(); go("submit"); toast("Ответы отправлены");
+function emailPayload(now){
+  const a=S.sub.answers, who=(S.sub.name||"").trim(), p={};
+  p._subject="Аттестация CID L2 → L3: "+(who||"без имени");
+  p._template="table";
+  p._captcha="false";
+  p["Кандидат"]=who||"без имени";
+  p["Начало теста"]=fmtDate(S.sub.startedAt);
+  p["Отправлено"]=fmtDate(now);
+  p["Время в тесте"]=fmt((now-S.sub.startedAt)/1000);
+  p["Часть 1 · блиц"]=BLITZ.map((q,i)=>{const ids=a.blitz[q.id]||[]; return (i+1)+". "+(ids.length?ids.map(id=>LETTERS[q.opts.findIndex(o=>o[0]===id)]).join(", "):"нет ответа");}).join("; ");
+  QUEUE.forEach((q,i)=>{const x=a.queue[q.id]||{}; const why=(x.why||"").trim(); p["Часть 2 · карточка "+(i+1)]=(ACTION_LABEL[x.action]||"нет действия")+(why?" | "+why:"");});
+  OPEN.forEach(o=>o.fields.forEach(f=>{ p[(o.part==="cases"?"Кейс ":"Задание ")+f[0]+" · "+f[1]]=((a.open[f[0]]||"").trim()||"нет ответа"); }));
+  return p;
+}
+async function sendAnswers(now){
+  const r=await fetch(FORM_URL,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json"},body:JSON.stringify(emailPayload(now))});
+  let j=null; try{ j=await r.json(); }catch(_){}
+  if(!r.ok||!j||String(j.success)!=="true") throw new Error(((j&&j.message)||("сервер ответил "+r.status))+".");
+}
+async function submitNow(e){
+  if(sending) return;
+  const btn=e&&e.currentTarget; sending=true; sendError="";
+  if(btn){ btn.disabled=true; btn.textContent="Отправляю…"; }
+  const now=Date.now();
+  try{
+    await sendAnswers(now);
+    S.sub.submitted=true; S.sub.submittedAt=now; sending=false;
+    await flush(true); renderAll(); go("submit"); toast("Ответы отправлены");
+  }catch(err){
+    sending=false; sendError=(err&&err.message)||"нет связи.";
+    renderSubmit(); go("submit");
+  }
 }
 function plainAnswers(sub){
   const a=sub.answers, out=["Аттестация CID L2 → L3"];
@@ -670,7 +708,7 @@ function onAnswer(){
   setSave("warn","есть изменения"); clearTimeout(saveTimer); saveTimer=setTimeout(()=>flush(),1200);
   renderTabs();
 }
-function snapshotSub(){ return {v:1,uid:S.uid||null,startedAt:S.sub.startedAt,submitted:!!S.sub.submitted,submittedAt:S.sub.submittedAt||null,updatedAt:Date.now(),answers:S.sub.answers}; }
+function snapshotSub(){ return {v:1,uid:S.uid||null,startedAt:S.sub.startedAt,submitted:!!S.sub.submitted,submittedAt:S.sub.submittedAt||null,updatedAt:Date.now(),answers:S.sub.answers,name:S.sub.name||""}; }
 async function flush(force){
   clearTimeout(saveTimer);
   if(saving){ again=true; return; }
@@ -684,7 +722,7 @@ async function flush(force){
       else if(e&&e.code==="invalid_argument"){ S.local=true; setSave("bad","только в браузере"); toast("Не получилось сохранить в облако: похоже, доступ только на просмотр. Нужен уровень Contributor."); renderStart(); }
       else setSave("bad","не сохранилось");
     }
-  } else setSave(S.local?"warn":"ok",S.local?"только в браузере":"сохранено");
+  } else setSave("ok",S.local?"сохранено в браузере":"сохранено");
   saving=false;
   if(again){ again=false; flush(); }
 }
@@ -789,7 +827,7 @@ function updateScores(){
 }
 async function renderGraderStart(root){
   root.append(el("div",{class:"part-head"},el("div",null,el("div",{class:"eyebrow",text:"Режим проверки"}),el("h2",{text:"Итог и оценка"})),el("div",{class:"part-meta",text:"видишь только ты и редакторы"})));
-  if(S.keyState!=="ok") root.append(el("div",{class:"banner warn",text:"Ключ с ответами пока не найден в хранилище страницы. Попроси Claude загрузить его ещё раз."}));
+  if(S.keyState!=="ok") root.append(el("div",{class:"banner warn",text:"Ключ с ответами пока не найден в хранилище страницы."}));
   const ids=Object.keys(S.subs);
   let names={}; try{ if(S.user&&ids.length) { const ps=await S.user.profiles(ids); ids.forEach(id=>names[id]=(ps[id]&&ps[id].name)||"Без имени"); } }catch(_){}
   const sel=el("select",{id:"subSel"});
@@ -863,10 +901,10 @@ function renderAll(){
 
 /* ---------- boot ---------- */
 function loadLocal(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw){ const d=JSON.parse(raw); if(d&&d.answers) return d; } }catch(_){} return null; }
-function applySub(d){ if(!d) return; S.sub={answers:Object.assign({blitz:{},queue:{},open:{}},JSON.parse(JSON.stringify(d.answers||{}))),startedAt:d.startedAt||null,submitted:!!d.submitted,submittedAt:d.submittedAt||null}; }
+function applySub(d){ if(!d) return; S.sub={answers:Object.assign({blitz:{},queue:{},open:{}},JSON.parse(JSON.stringify(d.answers||{}))),startedAt:d.startedAt||null,submitted:!!d.submitted,submittedAt:d.submittedAt||null,name:d.name||""}; }
 async function boot(){
   drawFp(); renderAll(); go((location.hash||"").slice(1),false);
-  const use=window.claude&&window.claude.use?n=>window.claude.use(n).catch(()=>null):()=>Promise.resolve(null);
+  const use=()=>Promise.resolve(null);
   const [user,db]=await Promise.all([use("user"),use("db")]);
   S.user=user; S.db=db;
   if(user){ try{ S.me=await user.me(); S.uid=S.me.id; S.admin=await user.canEdit(); }catch(_){} }
@@ -878,7 +916,7 @@ async function boot(){
     }catch(e){ applySub(loadLocal()); setSave("warn","нет связи с хранилищем"); }
   }
   S.ready=true;
-  if(S.local) setSave("warn","только в браузере"); else setSave("ok",S.sub.startedAt?"сохранено":"готово");
+  setSave("ok",S.sub.startedAt?(S.local?"сохранено в браузере":"сохранено"):"готово");
   if(S.admin&&S.db){ const mb=$("#modeBtn"); mb.hidden=false; mb.addEventListener("click",()=>S.mode==="grader"?leaveGrader():enterGrader()); }
   renderAll(); go(S.view,false);
 }

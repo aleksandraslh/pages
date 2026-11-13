@@ -60,6 +60,8 @@ nav.tabs{position:sticky;top:env(safe-area-inset-top,0px);z-index:6;background:v
 .timer.over{color:var(--warn);border-color:var(--warn)}
 .btimer.low{color:var(--warn);border-color:var(--warn);font-weight:600}
 #blitzBanner b{font-family:var(--f-mono)}
+.pledge{display:flex;gap:10px;align-items:flex-start;margin-top:18px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);cursor:pointer;font-size:14px;line-height:1.45}
+.pledge input{margin:2px 0 0;width:16px;height:16px;flex:none;accent-color:var(--accent)}
 .modebtn{font:600 12px var(--f-body);padding:5px 10px;border-radius:999px;border:1px solid var(--accent);background:none;color:var(--accent);cursor:pointer}
 .modebtn[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg)}
 
@@ -437,7 +439,7 @@ function renderStart(){
   const name=(S.me&&S.me.name)?S.me.name.split(" ")[0]:"";
   root.append(el("div",{class:"part-head"},el("div",null,el("div",{class:"eyebrow",text:"Как это устроено"}),el("h2",{text:name?("Привет, "+name+"!"):"Перед стартом"})),el("div",{class:"part-meta",text:"100 баллов · около 2 часов"})));
   if(S.local) root.append(el("div",{class:"banner warn",text:"Черновик ответов хранится в этом браузере, поэтому проходи тест на одном устройстве. В конце нажмёшь «Отправить», и ответы уйдут руководителю на почту."}));
-  if(S.sub.submitted) root.append(el("div",{class:"banner ok",text:"Ответы отправлены "+fmtDate(S.sub.submittedAt)+". Дальше устный разбор: можно спокойно выдохнуть."}));
+  if(S.sub.submitted) root.append(el("div",{class:"banner ok",text:"Ответы отправлены "+fmtDate(S.sub.submittedAt)+". Можно спокойно выдохнуть, результаты обсудим на встрече."}));
   const rules=el("ol",{class:"rules"},
     el("li",null,"На блиц ровно 25 минут, таймер запускается кнопкой «Начать тест». Пока время идёт, к вопросам блица можно возвращаться, а когда выйдет, ответы в нём зафиксируются. На остальные части жёсткого лимита нет, общий ориентир около двух часов."),
     el("li",null,"Ответы сохраняются сами. Можно закрыть вкладку и вернуться, главное в том же браузере."),
@@ -445,7 +447,7 @@ function renderStart(){
     el("li",null,"Страница отмечает уходы с вкладки и время по частям, а вставка текста в поля ответов отключена, так что пиши руками. Всё это придёт руководителю вместе с ответами."),
     el("li",null,"Пиши своими словами и по делу. Если данных не хватает, напиши, что и у кого уточнишь: это тоже засчитывается."),
     el("li",null,"Кейсы взяты из нашей работы, названия и цифры изменены."),
-    el("li",null,"После отправки ответы уже не поменять. Дальше короткий устный разбор."));
+    el("li",null,"После отправки ответы уже не поменять. Потом встретимся и обсудим результаты."));
   const tb=el("tbody");
   PARTS.forEach(p=>tb.append(el("tr",null,el("td",null,el("div",{class:"pt",text:p.n+". "+p.title}),el("div",{class:"muted",text:p.what})),el("td",{class:"num",text:p.pts}),el("td",{class:"num",text:(p.id==="blitz"?"":"~")+p.min+" мин"}))));
   tb.append(el("tr",null,el("td",{class:"pt",text:"Всего"}),el("td",{class:"num pt",text:"100"}),el("td",{class:"num",text:"~130 мин"})));
@@ -453,8 +455,12 @@ function renderStart(){
   const left=el("div",null,rules);
   const act=el("div",{class:"row",style:"margin-top:20px"});
   if(!S.sub.startedAt){
-    const b=el("button",{class:"btn",type:"button",disabled:!S.ready},S.ready?"Начать тест":"Подключаюсь…");
-    b.addEventListener("click",startTest); act.append(b);
+    const pledge=el("input",{type:"checkbox",id:"pledge"});
+    const b=el("button",{class:"btn",type:"button",disabled:true},S.ready?"Начать тест":"Подключаюсь…");
+    pledge.addEventListener("change",()=>{ b.disabled=!(pledge.checked&&S.ready); });
+    b.addEventListener("click",startTest);
+    left.append(el("label",{class:"pledge",for:"pledge"},pledge,el("span",{text:"Прохожу тест самостоятельно: без поиска, справки YouTube, Wiki, коллег и ИИ."})));
+    act.append(b);
   }else if(!S.sub.submitted){
     act.append(el("button",{class:"btn",type:"button",onclick:()=>go("blitz")},"Продолжить"));
     act.append(el("span",{class:"muted",text:"Начато "+fmtDate(S.sub.startedAt)}));
@@ -466,7 +472,7 @@ function renderStart(){
   root.append(el("div",{class:"start-grid"},left,plan));
 }
 async function startTest(){
-  S.sub.startedAt=Date.now(); S.sub.log=newLog(); S.blitzDone=false; await flush(true); renderAll(); go("blitz");
+  S.sub.startedAt=Date.now(); S.sub.log=newLog(); S.sub.log.pledged=true; S.blitzDone=false; await flush(true); renderAll(); go("blitz");
 }
 async function resetOwn(){
   S.sub={answers:{blitz:{},queue:{},open:{}},startedAt:null,submitted:false,submittedAt:null,log:null};
@@ -722,7 +728,7 @@ function logLines(sub){
   const total=aw.reduce((n,x)=>n+(x.d||0),0);
   const away=aw.length?aw.length+" раз, всего "+fmt(total)+": "+aw.map(x=>clock(x.t)+" на "+fmt(x.d)+" ("+(x.closed?"страница была закрыта, ":"")+(VIEW_RU[x.v]||x.v||"?")+")").join("; "):"не было";
   const bl=sub.startedAt?"до "+clock(sub.startedAt+BLITZ_MS)+(ed.blitz?", последний ответ в "+clock(ed.blitz.last):", ответов нет"):"";
-  return [["Блиц, таймер 25 минут",bl],["Время на странице по частям",spent],["Правки по частям",edits],["Уходы со страницы",away],["Попытки вставить текст",String(L.paste||0)]];
+  return [["Самостоятельное прохождение",L.pledged?"подтверждено галочкой перед стартом":"нет отметки"],["Блиц, таймер 25 минут",bl],["Время на странице по частям",spent],["Правки по частям",edits],["Уходы со страницы",away],["Попытки вставить текст",String(L.paste||0)]];
 }
 
 /* ---------- timer ---------- */
